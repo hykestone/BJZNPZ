@@ -1,0 +1,2154 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>班级智能排座系统</title>
+    <!-- Tailwind CSS v3 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- SheetJS - 用于Excel文件解析 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- HTML2Canvas - 用于截图 -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css" rel="stylesheet">
+    <!-- 统一的 Tailwind 配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#60a5fa',
+                        accent: '#93c5fd',
+                        neutral: '#f1f5f9',
+                        'neutral-dark': '#e2e8f0'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'seat': '0 2px 4px rgba(0, 0, 0, 0.1)',
+                        'seat-hover': '0 4px 8px rgba(0, 0, 0, 0.15)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .seat-transition {
+                transition: all 0.2s ease-in-out;
+            }
+            .seat-hover {
+                transform: translateY(-2px);
+            }
+            .platform-gradient {
+                background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            }
+        }
+    </style>
+    <style>
+        /* 全局样式 */
+        body {
+            font-family: 'KaiTi', 'STKaiti', sans-serif;
+            font-weight: bold; /* 全局加粗 */
+            background: linear-gradient(to right, #e0f7fa, #e8eaf6);
+            overflow-x: hidden;
+        }
+        
+        /* 确保提示框使用楷体并加粗 */
+        * {
+            font-family: inherit;
+            font-weight: inherit;
+        }
+        
+        /* 确保所有按钮文本加粗 */
+        button, .btn, [type="button"], [type="reset"], [type="submit"] {
+            font-weight: bold !important;
+        }
+
+        /* ===== 讲台可点击样式（正面/镜面视角切换）===== */
+        #platform {
+            cursor: pointer;
+            transition: all 0.4s ease;
+        }
+        #platform:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+        }
+        #platform:active {
+            transform: translateY(0) scale(0.98);
+        }
+        #platform .platform-switch-icon {
+            transition: transform 0.4s ease;
+        }
+        /* 镜面模式：讲台变为紫色渐变，与正面模式（蓝色）明显区分 */
+        #platform.mirror-mode {
+            background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+            box-shadow: 0 4px 14px rgba(168, 85, 247, 0.4);
+        }
+        #platform.mirror-mode:hover {
+            box-shadow: 0 6px 18px rgba(168, 85, 247, 0.5);
+        }
+        /* 切换时座位区的过渡动画 */
+        #seating-grid, #platform {
+            transition: transform 0.4s ease, opacity 0.4s ease;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div class="container mx-auto px-0 py-4 max-w-full w-full">
+
+        <!-- 页面标题栏 -->
+        <div class="text-center mb-6">
+            <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 flex items-center justify-center gap-3">
+                <i class="fa fa-graduation-cap text-blue-500"></i>班级智能排座系统
+            </h1>
+            <p class="text-sm text-gray-500 mt-2">拖拽调换座位 · 随机 / 交叉排座 · 点击讲台切换视角</p>
+        </div>
+
+        <div class="flex justify-center">
+
+        <!-- 主要内容区域 - 三栏布局 -->
+        <div class="flex flex-col lg:flex-row gap-8 w-full max-w-7xl mx-auto">
+            <!-- 左侧：排座设置 -->
+            <div class="lg:w-1/5 bg-white rounded-xl shadow-md p-4">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                    <i class="fa fa-sliders mr-2 text-primary"></i>排座设置
+                </h2>
+                
+                <div class="bg-gray-100 p-3 rounded-lg mb-3">
+                    <div class="mb-2 flex justify-between">
+                        <div class="flex-1 mr-2">
+                            <label class="text-sm font-bold text-gray-700 mb-1 block text-center">行数</label>
+                            <div class="flex items-center justify-center">
+                                <button id="decrease-rows" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-l-md flex items-center justify-center transition-colors">
+                                    <i class="fa fa-minus text-gray-600 text-xs"></i>
+                                </button>
+                                <div id="row-display" class="w-10 h-7 bg-white border-t border-b border-gray-300 text-center flex items-center justify-center text-sm font-medium">
+                                    6
+                                </div>
+                                <button id="increase-rows" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-r-md flex items-center justify-center transition-colors">
+                                    <i class="fa fa-plus text-gray-600 text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex-1">
+                            <label class="text-sm font-bold text-gray-700 mb-1 block text-center">列数</label>
+                            <div class="flex items-center justify-center">
+                                <button id="decrease-cols" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-l-md flex items-center justify-center transition-colors">
+                                    <i class="fa fa-minus text-gray-600 text-xs"></i>
+                                </button>
+                                <div id="col-display" class="w-10 h-7 bg-white border-t border-b border-gray-300 text-center flex items-center justify-center text-sm font-medium">
+                                    7
+                                </div>
+                                <button id="increase-cols" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-r-md flex items-center justify-center transition-colors">
+                                    <i class="fa fa-plus text-gray-600 text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <button id="update-layout-btn" class="w-full bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium py-1 px-2 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                            <i class="fa fa-refresh mr-2"></i>更新布局/重新排座
+                        </button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="random-seat-btn" class="flex-1 bg-green-500 hover:bg-green-600 text-white text-sm font-medium py-1 px-2 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                            <i class="fa fa-random mr-2"></i>随机排座
+                        </button>
+                        <button id="alternating-seat-btn" class="flex-1 bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium py-1 px-2 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                            <i class="fa fa-columns mr-2"></i>交叉排座
+                        </button>
+                    </div>
+                </div>
+                <input type="hidden" id="row-count" value="6">
+<input type="hidden" id="col-count" value="7">
+                
+
+                
+                <div class="mb-3">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-3 flex items-center">
+                        <i class="fa fa-arrows mr-2 text-blue-500"></i>座位操作
+                    </h3>
+                    <div class="bg-gray-100 p-3 rounded-lg mb-3">
+                        <div class="flex items-start gap-4 mb-2">
+                            <div class="mb-2 flex-shrink-0">
+                                <div class="flex flex-col items-center">
+                                    <label class="text-sm font-bold text-gray-700 mb-1 block text-center w-full">行交换</label>
+                                    <div class="flex items-center mb-2">
+                                        <button id="decrease-row1" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-l-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-minus text-gray-600 text-xs"></i>
+                                        </button>
+                                        <div id="row1-display" class="w-10 h-7 bg-white border-t border-b border-gray-300 text-center flex items-center justify-center text-sm font-medium">
+                                            1
+                                        </div>
+                                        <button id="increase-row1" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-r-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-plus text-gray-600 text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <div class="text-gray-600 my-1 transform rotate-90">
+                                        <i class="fa fa-exchange"></i>
+                                    </div>
+                                    <div class="flex items-center mb-2">
+                                        <button id="decrease-row2" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-l-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-minus text-gray-600 text-xs"></i>
+                                        </button>
+                                        <div id="row2-display" class="w-10 h-7 bg-white border-t border-b border-gray-300 text-center flex items-center justify-center text-sm font-medium">
+                                            2
+                                        </div>
+                                        <button id="increase-row2" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-r-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-plus text-gray-600 text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <button id="swap-rows-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-1 px-2 rounded-lg transition-colors duration-200">
+                                        确认交换
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="mb-2 flex-shrink-0">
+                                <div class="flex flex-col items-center">
+                                    <label class="text-sm font-bold text-gray-700 mb-1 block text-center w-full">列交换</label>
+                                    <div class="flex items-center mb-2">
+                                        <button id="decrease-col1" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-l-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-minus text-gray-600 text-xs"></i>
+                                        </button>
+                                        <div id="col1-display" class="w-10 h-7 bg-white border-t border-b border-gray-300 text-center flex items-center justify-center text-sm font-medium">
+                                            1
+                                        </div>
+                                        <button id="increase-col1" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-r-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-plus text-gray-600 text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <div class="text-gray-600 my-1 transform rotate-90">
+                                        <i class="fa fa-exchange"></i>
+                                    </div>
+                                    <div class="flex items-center mb-2">
+                                        <button id="decrease-col2" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-l-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-minus text-gray-600 text-xs"></i>
+                                        </button>
+                                        <div id="col2-display" class="w-10 h-7 bg-white border-t border-b border-gray-300 text-center flex items-center justify-center text-sm font-medium">
+                                            2
+                                        </div>
+                                        <button id="increase-col2" class="w-7 h-7 bg-gray-200 hover:bg-gray-300 rounded-r-md flex items-center justify-center transition-colors">
+                                            <i class="fa fa-plus text-gray-600 text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <button id="swap-cols-btn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium py-1 px-2 rounded-lg transition-colors duration-200">
+                                        确认交换
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex gap-4 justify-end">
+                            <button id="shift-down-btn" class="w-[120px] bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium py-1 px-2 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                                <span>向下平移</span>
+                                <i class="fa fa-arrow-down ml-1"></i>
+                            </button>
+                            
+                            <button id="shift-right-btn" class="w-[120px] bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium py-1 px-2 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                                <span>向右平移</span>
+                                <i class="fa fa-arrow-right ml-1"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <h3 class="text-lg font-semibold text-gray-800 mb-3 flex items-center">
+                        <i class="fa fa-cog mr-2 text-blue-500"></i>座位管理
+                    </h3>
+                    <div class="bg-gray-100 p-3 rounded-lg">
+                        <div class="flex gap-2">
+                            <button id="save-current-seating-btn" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                                <i class="fa fa-save mr-2"></i><span class="whitespace-pre-line">保存&#10;座位</span>
+                            </button>
+                            <button id="restore-seating-btn" class="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                                <i class="fa fa-history mr-2"></i><span class="whitespace-pre-line">恢复&#10;座位</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间：座位展示区 -->
+            <div id="seating-area" class="lg:flex-1 bg-white rounded-xl shadow-md p-2 sm:p-4 flex flex-col items-center w-full overflow-x-auto">
+
+                
+                <!-- 座位网格容器 -->
+                <div class="w-full overflow-x-auto pb-4 pt-2">
+                    <!-- 座位网格 - 6排7列 -->
+                    <!-- 讲台（可点击：在座位图上方/下方之间切换，满足正面/镜面视角调座需求） -->
+                    <div id="platform" class="platform-gradient text-white text-center py-2.5 px-4 rounded-lg mb-6 shadow-md max-w-xs mx-auto cursor-pointer select-none" title="点击切换讲台位置（正面 / 镜面视角）">
+                        <div class="flex items-center justify-center gap-2">
+                            <i class="fa fa-arrows-v text-sm opacity-80 platform-switch-icon"></i>
+                            <span class="text-lg font-bold">讲台</span>
+                            <i class="fa fa-arrows-v text-sm opacity-80 platform-switch-icon"></i>
+                        </div>
+                    </div>
+                    
+<div id="seating-grid" class="grid grid-cols-7 gap-2 sm:gap-3 md:gap-4">
+                        <!-- 动态生成42个座位 -->
+                        <!-- 第一排 -->
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        
+                        <!-- 第二排 -->
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        
+                        <!-- 第三排 -->
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        
+                        <!-- 第四排 -->
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        
+                        <!-- 第五排 -->
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        
+                        <!-- 第六排 -->
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                        <div class="seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line">
+                        </div>
+                    </div>
+                    
+
+                </div>
+            </div>
+
+            <!-- 右侧：名单导入 -->
+            <div class="lg:w-1/6 bg-white rounded-xl shadow-md p-2">
+                <h2 class="text-xl font-semibold text-gray-800 mb-2 flex items-center">
+                    <i class="fa fa-users mr-2 text-primary"></i>名单导入
+                </h2>
+                <div class="space-y-4">
+                    <div class="mb-4">
+                        <button id="import-btn" class="w-full bg-primary hover:bg-blue-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                            <i class="fa fa-upload mr-2"></i>导入姓名
+                        </button>
+                        <input type="file" id="file-input" accept=".xlsx,.xls" class="hidden">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <button id="add-manually-btn" class="w-full bg-green-500 hover:bg-green-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center">
+                            <i class="fa fa-plus mr-2"></i>手动添加
+                        </button>
+                    </div>
+                    
+
+                    
+                    <div id="student-list" class="mt-4 hidden">
+                        <h3 class="text-sm font-bold text-gray-700 mb-2">已导入学生名单：</h3>
+                        <div id="student-items" class="max-h-[24rem] overflow-y-auto text-sm space-y-1">
+                            <!-- 学生列表将在这里动态生成 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div>
+    </div>
+
+            <!-- 使用说明板块 -->
+            <div class="w-full max-w-7xl mx-auto mt-6 bg-white rounded-xl shadow-md p-4">
+                <div class="flex items-center mb-4">
+                    <i class="fa fa-info-circle text-red-500 mr-2 text-xl"></i>
+                    <h2 class="text-xl font-bold text-gray-800">使用说明</h2>
+                </div>
+                <div class="grid grid-cols-1 gap-4">
+                    <!-- 名单管理说明 -->
+                    <div>
+                        <div class="flex items-center mb-2">
+                            <h3 class="text-lg font-semibold text-gray-700 flex items-center"><i class="fa fa-users mr-2 text-green-500"></i>名单管理</h3>
+                        </div>
+                        <ul class="space-y-2">
+                            <li class="p-2 rounded-md">
+                                <span class="bg-blue-500 text-white px-2 py-1 rounded-md"><i class="fa fa-upload mr-2"></i><span class="font-bold">导入姓名</span></span>：上传包含“姓名”和“性别”列的Excel文件导入学生名单。
+                            </li>
+                            <li class="p-2 rounded-md">
+                                <span class="bg-green-500 text-white px-2 py-1 rounded-md"><i class="fa fa-plus mr-2"></i><span class="font-bold">手动添加</span></span>：输入学生姓名和性别，点击“添加”按钮手动添加学生。
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+    <!-- 手动添加学生的模态框 -->
+    <div id="add-student-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">手动添加学生</h3>
+                <button id="close-modal-btn" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <form id="add-student-form">
+                <div class="mb-4">
+                    <label for="student-name" class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
+                    <input type="text" id="student-name" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入学生姓名" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">性别</label>
+                    <div class="flex space-x-4">
+                        <label class="flex items-center">
+                            <input type="radio" name="gender" value="男" class="mr-2" checked>
+                            <span>男</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="gender" value="女" class="mr-2">
+                            <span>女</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" id="cancel-add-btn" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">确认添加</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Excel格式说明的模态框 -->
+    <div id="excel-format-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-lg">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">Excel导入格式说明</h3>
+                <button id="close-excel-format-modal-btn" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="mb-4">
+                <p class="mb-2">为确保学生名单能够成功导入，请按照以下格式准备Excel文件：</p>
+                <ul class="list-disc pl-5 space-y-1">
+                    <li>Excel文件必须包含<strong style="color: red;">姓名</strong>和<strong style="color: red;">性别</strong>两列。</li>
+                    <li><strong style="color: red;">姓名</strong>列：填写学生的姓名。</li>
+                    <li><strong style="color: red;">性别</strong>列：填写学生的性别，仅支持<strong style="color: red;">男</strong>或<strong style="color: red;">女</strong>。</li>
+                </ul>
+            </div>
+            <div class="bg-gray-100 p-4 rounded-md mb-4 text-center">
+                <p class="font-semibold mb-2">示例：</p>
+                <img src="https://p11-flow-imagex-download-sign.byteimg.com/tos-cn-i-a9rns2rl98/6c4351223d914dca9af2998b9205d3ae.png~tplv-a9rns2rl98-24:720:720.png?rcl=20251211234809B494D7C7059DFDF35387&rk3s=8e244e95&rrcfp=8a172a1a&x-expires=1766072889&x-signature=HUVt%2Fs1q%2F%2FS2RVEAcW3xIwQhJ98%3D" alt="Excel格式示例" class="max-w-full h-auto rounded-md shadow-sm mx-auto">
+            </div>
+            <div class="flex justify-end">
+                <button id="close-excel-format-btn" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">我知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let currentSeat = null;
+        let currentLayout = { rows: 6, cols: 7 };
+        let students = [];
+        let importedStudents = [];
+        let originalImportedStudents = [];
+        let row1 = 1;
+        let row2 = 2;
+        let col1 = 1;
+        let col2 = 2;
+        let hasUnsavedChanges = false; // 标记是否有未保存的更改
+
+        // 讲台当前是否在座位图上方（true=正面视角；false=镜面视角）
+        let platformAtTop = true;
+        // ===== 座位姓名自适应字体 =====
+        // 根据座位框大小动态计算字号：2-4字姓名都单行显示，字号尽可能大且居中；
+        // 4字姓名按宽度自动缩小字号，始终在同一行显示。
+        function autoFitSeatFonts() {
+            document.querySelectorAll('#seating-grid .seat').forEach(function(seat) {
+                const name = seat.textContent.trim();
+                if (!name) return;
+                const len = [...name].length;
+                const rect = seat.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) return;
+                // 扣除内边距后的可用尺寸
+                const availW = rect.width - 14;
+                const availH = rect.height - 16;
+                // 单行约束：每个汉字约占1.05倍字号；行高约占可用高度的0.95倍
+                let size = Math.min(availW / (len * 1.05), availH / 1.1);
+                size = Math.max(10, Math.floor(size));
+                size = Math.min(size, 30);
+                seat.style.fontSize = size + 'px';
+                seat.style.lineHeight = '1.1';
+                seat.style.whiteSpace = 'nowrap';
+                seat.style.overflow = 'hidden';
+            });
+        }
+
+        let fitScheduled = false;
+        function scheduleFit() {
+            if (fitScheduled) return;
+            fitScheduled = true;
+            requestAnimationFrame(function() {
+                fitScheduled = false;
+                autoFitSeatFonts();
+            });
+        }
+
+
+        // ===== 讲台点击切换视角（正面 / 镜面）=====
+        function togglePlatformPosition() {
+            const platform = document.getElementById('platform');
+            const seatGrid = document.getElementById('seating-grid');
+            if (!platform || !seatGrid) return;
+
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+
+            // 1. 翻转座位网格的上下顺序（保持"第一排始终离讲台最近"的镜像关系）
+            const seats = Array.from(seatGrid.querySelectorAll('.seat'));
+            seats.reverse().forEach(seat => seatGrid.appendChild(seat));
+
+            // 2. 移动讲台位置
+            const wrapper = seatGrid.parentNode;
+            if (platformAtTop) {
+                wrapper.appendChild(platform);            // 正面 → 镜面：讲台移到座位图下方
+                platformAtTop = false;
+                // 与最后一行座位保持适当间距（下方时上边距1.5rem，下边距归零保持对称）
+                platform.style.marginTop = '1.5rem';
+                platform.style.marginBottom = '0';
+            } else {
+                wrapper.insertBefore(platform, seatGrid); // 镜面 → 正面：讲台移回座位图上方
+                platformAtTop = true;
+                // 恢复默认间距（上边距归零、下边距1.5rem，与原始样式一致）
+                platform.style.marginTop = '0';
+                platform.style.marginBottom = '1.5rem';
+            }
+
+            // 3. 切换讲台视觉状态（镜面模式为紫色渐变）
+            platform.classList.toggle('mirror-mode');
+
+            showMessage('视角已切换', platformAtTop ? '当前为正面视角，讲台在座位图上方' : '当前为镜面视角，讲台在座位图下方', 'info');
+            console.log('讲台位置已切换:', platformAtTop ? '上方（正面视角）' : '下方（镜面视角）');
+        }
+
+        // 为关闭Excel格式说明模态框的按钮添加事件监听器
+        document.getElementById('close-excel-format-modal-btn').addEventListener('click', function() {
+            document.getElementById('excel-format-modal').classList.add('hidden');
+        });
+
+        document.getElementById('close-excel-format-btn').addEventListener('click', function() {
+            document.getElementById('excel-format-modal').classList.add('hidden');
+        });
+
+        // 为“交叉排座”按钮添加事件监听器
+        document.getElementById('alternating-seat-btn').addEventListener('click', function() {
+            console.log('=== 开始智能交叉排座 ===');
+            console.log('当前学生数量:', importedStudents.length);
+            
+            if (importedStudents.length === 0) {
+                showMessage('提示', '请先导入学生名单', 'info');
+                return;
+            }
+            
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+
+            // 清空当前座位
+            const allSeats = document.querySelectorAll('.seat');
+            console.log('座位总数:', allSeats.length);
+            allSeats.forEach(seat => {
+                seat.textContent = '';
+                seat.style.backgroundColor = '';
+                seat.style.color = '';
+            });
+
+            // 获取座位总数
+            const totalSeats = currentLayout.rows * currentLayout.cols;
+            if (importedStudents.length > totalSeats) {
+                alert(`学生人数(${importedStudents.length})超过座位数(${totalSeats})，部分学生将无法安排座位！`);
+            }
+
+            // 将学生按性别分组
+            const boys = importedStudents.filter(s => s.gender === '男');
+            const girls = importedStudents.filter(s => s.gender === '女');
+            console.log('男生数量:', boys.length, '女生数量:', girls.length);
+
+            // 打乱顺序
+            boys.sort(() => Math.random() - 0.5);
+            girls.sort(() => Math.random() - 0.5);
+            console.log('已打乱男女生顺序');
+
+            // 获取当前布局信息
+            const rows = currentLayout.rows;
+            const cols = currentLayout.cols;
+            console.log('当前布局:', rows, '行 x', cols, '列');
+
+            // 随机决定左下角第一个座位的性别
+            let firstSeatGender = Math.random() > 0.5 ? '男' : '女';
+            console.log('左下角第一个座位性别:', firstSeatGender);
+
+            // 创建指针来跟踪男女生的使用情况
+            let boyIndex = 0;
+            let girlIndex = 0;
+
+            // 安排座位 - 按列从下往上排列，从最右侧开始一列一列往左排
+            let totalArranged = 0;
+            
+            for (let col = cols - 1; col >= 0; col--) {
+                console.log(`\n--- 开始排列第 ${col + 1} 列 ---`);
+                
+                // 确定当前列的起始性别
+                let currentColGender;
+                if (col === 0) {
+                    // 第一列使用随机确定的起始性别
+                    currentColGender = firstSeatGender;
+                } else {
+                    // 后续列与前一列起始性别相反
+                    currentColGender = (col % 2 === 0) ? firstSeatGender : (firstSeatGender === '男' ? '女' : '男');
+                }
+                console.log(`第 ${col + 1} 列起始性别:`, currentColGender);
+
+                // 按列从下往上排列
+                for (let row = rows - 1; row >= 0; row--) {
+                    const seatIndex = row * cols + col;
+                    
+                    if (seatIndex >= allSeats.length) {
+                        console.log(`座位索引 ${seatIndex} 超出范围，跳过`);
+                        continue;
+                    }
+
+                    const seat = allSeats[seatIndex];
+                    const actualRow = rows - row; // 实际显示的行号（从下往上）
+                    
+                    console.log(`处理座位[行:${actualRow},列:${col + 1}]索引:${seatIndex}，期望性别:${currentColGender}`);
+
+                    // 尝试安排对应性别的学生
+                    let student = null;
+                    
+                    if (currentColGender === '男' && boyIndex < boys.length) {
+                        student = boys[boyIndex];
+                        boyIndex++;
+                        console.log(`安排男生: ${student.name}`);
+                    } else if (currentColGender === '女' && girlIndex < girls.length) {
+                        student = girls[girlIndex];
+                        girlIndex++;
+                        console.log(`安排女生: ${student.name}`);
+                    } else {
+                        // 如果没有对应性别的学生，使用另一个性别的学生
+                        if (boyIndex < boys.length) {
+                            student = boys[boyIndex];
+                            boyIndex++;
+                            console.log(`(备用) 安排男生: ${student.name}`);
+                        } else if (girlIndex < girls.length) {
+                            student = girls[girlIndex];
+                            girlIndex++;
+                            console.log(`(备用) 安排女生: ${student.name}`);
+                        } else {
+                            console.log('没有更多学生可安排');
+                            break;
+                        }
+                    }
+
+                    // 设置座位信息
+                    if (student) {
+                        seat.textContent = formatStudentName(student.name, seat);
+                        seat.style.color = 'black';
+                        seat.style.backgroundColor = student.gender === '男' ? '#dbeafe' : '#fce7f3';
+                        totalArranged++;
+                        
+                        // 切换下一个座位的性别
+                        currentColGender = currentColGender === '男' ? '女' : '男';
+                    }
+                }
+
+                // 如果所有学生都已安排，跳出循环
+                if (boyIndex >= boys.length && girlIndex >= girls.length) {
+                    console.log('所有学生已安排完毕');
+                    break;
+                }
+            }
+
+            console.log('\n=== 排座完成 ===');
+            console.log('总共安排学生:', totalArranged);
+            console.log('剩余男生:', boys.length - boyIndex);
+            console.log('剩余女生:', girls.length - girlIndex);
+
+            // 更新学生列表（移除已安排的学生）
+            const arrangedNames = [];
+            allSeats.forEach(seat => {
+                const name = seat.textContent.trim();
+                if (name) {
+                    arrangedNames.push(name);
+                }
+            });
+
+            // 从导入的学生列表中移除已安排的学生
+            importedStudents = importedStudents.filter(student => !arrangedNames.includes(student.name));
+            console.log('更新后未安排学生数量:', importedStudents.length);
+
+            // 重新显示学生列表
+            displayStudentList();
+
+            showMessage('排座完成', `已智能交叉安排 ${totalArranged} 名学生的座位`, 'success');
+            console.log('座位安排完成');
+            
+            // 清空已安排的学生列表
+            importedStudents = [];
+            // 重新显示学生列表
+            displayStudentList();
+            
+            showMessage('排座完成', `已交叉安排 ${alternatingStudents.length} 名学生的座位`, 'success');
+        });
+
+                // 处理姓名的函数：统一单行显示（字号由 autoFitSeatFonts 根据座位框大小自适应）
+        function formatStudentName(name, seatElement = null) {
+            return name;
+        }
+
+        // 初始化座位布局
+        function initializeSeats() {
+            // 为页面上所有座位元素添加拖拽事件
+            const seats = document.querySelectorAll('.seat');
+            seats.forEach(seat => {
+                addDragEventsToSeat(seat);
+            });
+        }
+        
+        // 为单个座位添加拖拽事件的函数
+        function addDragEventsToSeat(seat) {
+            // 清除之前的事件监听器，避免重复绑定
+            seat.draggable = false;
+            seat.removeEventListener('dragstart', handleDragStart);
+            seat.removeEventListener('dragend', handleDragEnd);
+            seat.removeEventListener('dragover', handleDragOver);
+            seat.removeEventListener('dragenter', handleDragEnter);
+            seat.removeEventListener('dragleave', handleDragLeave);
+            seat.removeEventListener('drop', handleDrop);
+            
+            // 设置座位可拖拽
+            seat.draggable = true;
+            
+            // 重新绑定事件监听器
+            seat.addEventListener('dragstart', handleDragStart);
+            seat.addEventListener('dragend', handleDragEnd);
+            seat.addEventListener('dragover', handleDragOver);
+            seat.addEventListener('dragenter', handleDragEnter);
+            seat.addEventListener('dragleave', handleDragLeave);
+            seat.addEventListener('drop', handleDrop);
+        }
+        
+        // 全局变量，用于存储拖拽的座位信息
+        let draggedSeatElement = null;
+        
+        // 拖拽开始事件处理函数
+        function handleDragStart(e) {
+            console.log('拖拽开始:', this.textContent);
+            draggedSeatElement = this;
+            
+            // 设置拖拽效果
+            e.dataTransfer.effectAllowed = 'move';
+            
+            // 添加拖拽时的样式
+            this.classList.add('opacity-50');
+        }
+        
+        // 拖拽结束事件处理函数
+        function handleDragEnd() {
+            console.log('拖拽结束:', this.textContent);
+            // 移除拖拽时的样式
+            this.classList.remove('opacity-50');
+            draggedSeatElement = null;
+            
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+        }
+        
+        // 拖拽经过事件处理函数
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        }
+        
+        // 拖拽进入事件处理函数
+        function handleDragEnter(e) {
+            e.preventDefault();
+            this.classList.add('bg-gray-100');
+        }
+        
+        // 拖拽离开事件处理函数
+        function handleDragLeave() {
+            this.classList.remove('bg-gray-100');
+        }
+        
+        // 拖拽放置事件处理函数
+        function handleDrop(e) {
+            e.preventDefault();
+            this.classList.remove('bg-gray-100');
+            
+            try {
+                // 如果没有拖拽的座位元素，则不处理
+                if (!draggedSeatElement) {
+                    console.error('没有拖拽的座位元素');
+                    return;
+                }
+                
+                // 如果是同一个座位，则不处理
+                if (draggedSeatElement === this) {
+                    console.log('同一个座位，不进行交换');
+                    return;
+                }
+                
+                console.log('开始交换座位信息...');
+                
+                // 获取两个座位的当前内容和样式
+                const draggedText = draggedSeatElement.textContent;
+                const draggedBgColor = draggedSeatElement.style.backgroundColor;
+                
+                const currentText = this.textContent;
+                const currentBgColor = this.style.backgroundColor;
+                
+                console.log('拖拽座位原有内容:', draggedText);
+                console.log('当前座位原有内容:', currentText);
+                
+                // 交换两个座位的学生信息和样式
+                draggedSeatElement.textContent = currentText;
+                draggedSeatElement.style.backgroundColor = currentBgColor;
+                
+                this.textContent = draggedText;
+                this.style.backgroundColor = draggedBgColor;
+                
+                console.log('交换后拖拽座位内容:', draggedSeatElement.textContent);
+                console.log('交换后当前座位内容:', this.textContent);
+                
+                console.log('座位交换成功');
+                
+                // 显示交换成功消息
+                if (currentText === '') {
+                    showMessage('移动成功', `${draggedText} 已移动到新座位`, 'success');
+                } else {
+                    showMessage('交换成功', `${draggedText} 和 ${currentText} 已交换座位`, 'success');
+                }
+                
+            } catch (error) {
+                console.error('交换座位时发生错误:', error);
+                showMessage('错误', '交换座位时发生错误，请查看控制台', 'error');
+            }
+        }
+
+        // 更新座位布局
+        function updateSeatLayout(rows, cols) {
+            const seatGrid = document.querySelector('.grid');
+            if (!seatGrid) return;
+            
+            // 在更新布局前，收集所有已安排学生的信息
+            const assignedStudents = [];
+            const existingSeats = document.querySelectorAll('.seat');
+            
+            existingSeats.forEach(seat => {
+                const studentName = seat.textContent.trim();
+                if (studentName !== '') {
+                    // 判断学生性别（根据座位背景色）
+                    const seatStyle = window.getComputedStyle(seat);
+                    const backgroundColor = seatStyle.backgroundColor;
+                    let gender = '男'; // 默认性别
+                    
+                    // 根据背景色判断性别
+                    if (backgroundColor.includes('252, 231, 243') || backgroundColor.includes('249, 168, 212')) {
+                        gender = '女'; // 粉红色背景为女生
+                    }
+                    
+                    assignedStudents.push({
+                        name: studentName,
+                        gender: gender
+                    });
+                }
+            });
+            
+            // 清空现有座位
+            seatGrid.innerHTML = '';
+            
+            // 设置网格列数
+            seatGrid.className = `grid grid-cols-${cols} gap-2 sm:gap-3 md:gap-4`;
+            
+            // 创建座位数组用于按列排列
+            const seats = [];
+            
+            // 创建所有座位元素
+            for (let i = 0; i < rows * cols; i++) {
+                const seat = document.createElement('div');
+                seat.className = 'seat bg-white border border-gray-200 rounded-md p-2 sm:p-3 text-center text-sm text-gray-700 shadow-seat seat-transition hover:shadow-seat-hover hover:seat-hover cursor-pointer h-[40px] sm:h-[50px] w-full flex items-center justify-center whitespace-pre-line';
+                
+// 移除点击事件，仅保留拖拽功能
+                
+                // 为新创建的座位添加拖拽事件
+                addDragEventsToSeat(seat);
+                
+                seats.push(seat);
+            }
+            
+            // 按行从上到下排列座位（第一排位于网格顶部、靠近讲台；最后一排位于底部）
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const index = row * cols + col;
+                    seatGrid.appendChild(seats[index]);
+                }
+            }
+            
+            // 更新当前布局信息
+            currentLayout = { rows, cols };
+            
+            // 保存当前未安排的学生
+            const unassignedStudents = [...importedStudents];
+            
+            // 创建一个已安排学生的姓名映射，用于快速查找
+            const assignedStudentMap = new Map();
+            assignedStudents.forEach(student => {
+                assignedStudentMap.set(student.name, student);
+            });
+            
+            // 清空当前导入名单
+            importedStudents = [];
+            
+            // 按照原始导入顺序重新添加所有学生（包括已安排和未安排的）
+            originalImportedStudents.forEach(originalStudent => {
+                const assignedStudent = assignedStudentMap.get(originalStudent.name);
+                if (assignedStudent) {
+                    // 如果该学生在已安排列表中，使用已安排的信息（包含性别）
+                    importedStudents.push(assignedStudent);
+                    // 从映射中移除，避免重复添加
+                    assignedStudentMap.delete(originalStudent.name);
+                } else {
+                    // 检查该学生是否在未安排列表中
+                    const unassignedIndex = unassignedStudents.findIndex(s => s.name === originalStudent.name);
+                    if (unassignedIndex !== -1) {
+                        // 如果在未安排列表中，添加该学生
+                        importedStudents.push(unassignedStudents[unassignedIndex]);
+                        // 从未安排列表中移除，避免重复添加
+                        unassignedStudents.splice(unassignedIndex, 1);
+                    } else {
+                        // 如果都不在，使用原始信息
+                        importedStudents.push(originalStudent);
+                    }
+                }
+            });
+            
+            // 添加任何不在原始列表中的已安排学生（以防有手动添加的学生）
+            assignedStudentMap.forEach(student => {
+                importedStudents.push(student);
+            });
+            
+            // 添加任何剩余的未安排学生（可能是手动添加的）
+            importedStudents.push(...unassignedStudents);
+            
+            // 重新显示学生列表
+            displayStudentList();
+            
+            // 显示提示消息
+            if (assignedStudents.length > 0) {
+                showMessage('布局更新', `已将 ${assignedStudents.length} 名学生按原始顺序返还到名单中`, 'info');
+            }
+
+            // 保持当前视角模式：镜面模式下座位顺序需要整体翻转（第一排仍在讲台一侧）
+            if (!platformAtTop) {
+                const seatsForFlip = Array.from(seatGrid.querySelectorAll('.seat'));
+                seatsForFlip.reverse().forEach(seat => seatGrid.appendChild(seat));
+            }
+        }
+
+        // 座位点击事件已在displayStudentList中实现
+        
+        // 更新布局按钮点击事件
+        document.getElementById('update-layout-btn').addEventListener('click', function() {
+            const rowCount = parseInt(document.getElementById('row-count').value);
+            const colCount = parseInt(document.getElementById('col-count').value);
+            
+            // 验证输入
+            if (isNaN(rowCount) || rowCount < 1 || rowCount > 10) {
+                alert('请输入有效的行数（1-10）');
+                return;
+            }
+            
+            if (isNaN(colCount) || colCount < 1 || colCount > 12) {
+                alert('请输入有效的列数（1-12）');
+                return;
+            }
+            
+            // 更新座位布局
+            updateSeatLayout(rowCount, colCount);
+        });
+
+        // 模态框相关事件已在DOMContentLoaded中添加
+        
+        // 列交换控制按钮事件监听器
+        // 第一列减少按钮
+        document.getElementById('decrease-col1').addEventListener('click', function() {
+            const col1Display = document.getElementById('col1-display');
+            let col1 = parseInt(col1Display.textContent);
+            if (col1 > 1) {
+                col1--;
+                col1Display.textContent = col1;
+                window.col1 = col1;
+            }
+        });
+
+        // 第一列增加按钮
+        document.getElementById('increase-col1').addEventListener('click', function() {
+            const col1Display = document.getElementById('col1-display');
+            const col2Display = document.getElementById('col2-display');
+            let col1 = parseInt(col1Display.textContent);
+            const col2 = parseInt(col2Display.textContent);
+            const maxCol = parseInt(document.getElementById('col-count').value);
+            
+            if (col1 < maxCol && col1 < col2 - 1) {
+                col1++;
+                col1Display.textContent = col1;
+                window.col1 = col1;
+            }
+        });
+
+        // 第二列减少按钮
+        document.getElementById('decrease-col2').addEventListener('click', function() {
+            const col1Display = document.getElementById('col1-display');
+            const col2Display = document.getElementById('col2-display');
+            const col1 = parseInt(col1Display.textContent);
+            let col2 = parseInt(col2Display.textContent);
+            
+            if (col2 > col1 + 1) {
+                col2--;
+                col2Display.textContent = col2;
+                window.col2 = col2;
+            }
+        });
+
+        // 第二列增加按钮
+        document.getElementById('increase-col2').addEventListener('click', function() {
+            const col2Display = document.getElementById('col2-display');
+            let col2 = parseInt(col2Display.textContent);
+            const maxCol = parseInt(document.getElementById('col-count').value);
+            
+            if (col2 < maxCol) {
+                col2++;
+                col2Display.textContent = col2;
+                window.col2 = col2;
+            }
+        });
+
+        // 随机排座按钮点击事件
+        document.getElementById('random-seat-btn').addEventListener('click', function() {
+            if (importedStudents.length === 0) {
+                showMessage('提示', '请先导入学生名单', 'info');
+                return;
+            }
+            randomSeatStudents();
+        });
+
+        // 导入按钮点击事件
+        document.getElementById('import-btn').addEventListener('click', function() {
+            document.getElementById('file-input').click();
+        });
+
+        // 文件选择事件
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // 检查文件类型
+            const fileType = file.name.split('.').pop().toLowerCase();
+            if (fileType !== 'xlsx' && fileType !== 'xls') {
+                showMessage('错误', '请选择Excel文件(.xlsx或.xls格式)', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                    // 验证数据格式
+                    if (jsonData.length === 0) {
+                        showMessage('错误', 'Excel文件为空', 'error');
+                        return;
+                    }
+
+                    // 检查第一行是否包含"姓名"和"性别"列
+                    const firstRow = jsonData[0];
+                    let nameColumn = null;
+                    let genderColumn = null;
+
+                    // 查找姓名和性别列
+                    for (const key in firstRow) {
+                        const lowerKey = key.toLowerCase();
+                        if (lowerKey.includes('姓名') || lowerKey === 'name') {
+                            nameColumn = key;
+                        }
+                        if (lowerKey.includes('性别') || lowerKey === 'gender' || lowerKey === 'sex') {
+                            genderColumn = key;
+                        }
+                    }
+
+                    // 验证必要列是否存在
+                    if (!nameColumn) {
+                        showMessage('错误', '未找到"姓名"列', 'error');
+                        return;
+                    }
+                    if (!genderColumn) {
+                        showMessage('错误', '未找到"性别"列', 'error');
+                        return;
+                    }
+
+                    // 收集所有已存在的学生姓名（包括已排座和未排座的）
+                    function getAllExistingStudentNames() {
+                        const existingNames = new Set();
+                        
+                        // 添加未排座学生的姓名
+                        importedStudents.forEach(student => {
+                            existingNames.add(student.name.trim());
+                        });
+                        
+                        // 添加已排座学生的姓名
+                        const allSeats = document.querySelectorAll('.seat');
+                        allSeats.forEach(seat => {
+                            const name = seat.textContent.trim();
+                            if (name) {
+                                existingNames.add(name);
+                            }
+                        });
+                        
+                        return existingNames;
+                    }
+                    
+                    // 获取所有已存在的学生姓名
+                    const existingNames = getAllExistingStudentNames();
+                    console.log('已存在的学生姓名:', Array.from(existingNames));
+                    
+                    // 提取学生信息
+                    importedStudents = [];
+                    originalImportedStudents = []; // 重置原始顺序列表
+                    let validCount = 0;
+                    let duplicateCount = 0;
+
+                    jsonData.forEach((row, index) => {
+                        const name = row[nameColumn];
+                        const gender = row[genderColumn];
+                        
+                        // 跳过空行
+                        if (!name || name.toString().trim() === '') {
+                            return;
+                        }
+                        
+                        const trimmedName = name.toString().trim();
+                        
+                        // 检查是否重复
+                        if (existingNames.has(trimmedName)) {
+                            console.log(`发现重复姓名: ${trimmedName}，跳过导入`);
+                            duplicateCount++;
+                            return;
+                        }
+
+                        // 验证性别
+                        let genderText = '未知';
+                        if (gender) {
+                            const genderLower = gender.toString().toLowerCase();
+                            if (genderLower.includes('女') || genderLower === 'female' || genderLower === 'f') {
+                                genderText = '女';
+                            } else if (genderLower.includes('男') || genderLower === 'male' || genderLower === 'm') {
+                                genderText = '男';
+                            }
+                        }
+
+                        const student = {
+                            id: validCount + 1,
+                            name: trimmedName,
+                            gender: genderText
+                        };
+                        
+                        importedStudents.push(student);
+                        originalImportedStudents.push(student); // 保存原始顺序
+                        validCount++;
+                        
+                        // 将新导入的学生姓名添加到已存在列表中
+                        existingNames.add(trimmedName);
+                    });
+                    
+                    console.log(`导入结果: 成功 ${validCount} 名，重复 ${duplicateCount} 名`);
+
+                    if (validCount === 0) {
+                        showMessage('错误', '未找到有效的学生信息', 'error');
+                        return;
+                    }
+
+                    // 显示导入结果消息
+                    let message = `成功导入 ${validCount} 名学生信息`;
+                    if (duplicateCount > 0) {
+                        message += `，跳过 ${duplicateCount} 名重复学生`;
+                    }
+                    showMessage('导入结果', message, validCount > 0 ? 'success' : 'warning');
+                    
+                    // 显示学生列表
+                    displayStudentList();
+
+                } catch (error) {
+                    console.error('解析Excel文件时出错:', error);
+                    showMessage('错误', '解析Excel文件时出错: ' + error.message, 'error');
+                }
+            };
+
+            reader.onerror = function() {
+                showMessage('错误', '读取文件时出错', 'error');
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 显示学生列表
+        function displayStudentList() {
+            const studentList = document.getElementById('student-list');
+            const studentItems = document.getElementById('student-items');
+            
+            // 清空现有列表
+            studentItems.innerHTML = '';
+            
+            // 添加学生信息
+            importedStudents.forEach(student => {
+                const item = document.createElement('div');
+                item.className = 'flex justify-between items-center p-1 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer';
+                item.innerHTML = `
+                    <span class="text-gray-700">${student.name}</span>
+                    <span class="text-xs px-2 py-0.5 rounded ${student.gender.includes('女') ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}">
+                        ${student.gender}
+                    </span>
+                `;
+                
+                // 添加点击事件，实现自动排座
+                item.addEventListener('click', function() {
+                    // 获取所有座位
+                    const allSeats = document.querySelectorAll('.seat');
+                    let emptySeat = null;
+                    
+                    // 按照从左下角开始，一列一列向上的顺序查找空座位
+                    // 先获取当前布局信息
+                    const rows = currentLayout.rows;
+                    const cols = currentLayout.cols;
+                    
+                    // 按列从下到上查找空座位
+                    for (let col = 0; col < cols; col++) {
+                        for (let row = rows - 1; row >= 0; row--) {
+                            const index = row * cols + col;
+                            if (index < allSeats.length && allSeats[index].textContent.trim() === '') {
+                                emptySeat = allSeats[index];
+                                break;
+                            }
+                        }
+                        if (emptySeat) break;
+                    }
+                    
+                    if (emptySeat) {
+                        // 设置座位内容和样式
+                        emptySeat.textContent = formatStudentName(student.name, emptySeat);
+                        emptySeat.style.color = 'black'; // 文字设为黑色
+                        if (student.gender.includes('女')) {
+                            emptySeat.style.backgroundColor = '#fce7f3'; // 女生座位设为粉红色
+                        } else {
+                            emptySeat.style.backgroundColor = '#dbeafe'; // 男生座位设为蓝色
+                        }
+                        
+                        // 从学生列表中移除该学生
+                        const studentIndex = importedStudents.findIndex(s => s.name === student.name);
+                        if (studentIndex !== -1) {
+                            importedStudents.splice(studentIndex, 1);
+                            // 重新渲染学生列表
+                            displayStudentList();
+                        }
+                        
+                        // 显示成功消息
+                        showMessage('排座成功', `${student.name} 已安排到座位`, 'success');
+                    } else {
+                        // 没有空座位时显示提示
+                        showMessage('排座失败', '没有可用的空座位', 'error');
+                    }
+                });
+                
+                studentItems.appendChild(item);
+            });
+            
+            // 显示学生列表（如果还有学生）
+            if (importedStudents.length > 0) {
+                studentList.classList.remove('hidden');
+            } else {
+                studentList.classList.add('hidden');
+            }
+        }
+
+        // 显示消息框
+        function showMessage(title, message, type = 'info') {
+            // 创建消息框元素
+            const messageBox = document.createElement('div');
+            messageBox.className = 'fixed top-4 right-4 z-50 max-w-md';
+            
+            // 设置消息框样式
+            const bgColor = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500';
+            const icon = type === 'error' ? 'fa-exclamation-circle' : type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+            
+            messageBox.innerHTML = `
+                <div class="${bgColor} text-white p-4 rounded-lg shadow-lg flex items-start">
+                    <div class="flex-shrink-0">
+                        <i class="fa ${icon} text-xl"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="font-medium">${title}</p>
+                        <p class="text-sm mt-1">${message}</p>
+                    </div>
+                    <button class="ml-auto text-white hover:text-gray-200">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            `;
+            
+            // 添加到页面
+            document.body.appendChild(messageBox);
+            
+            // 添加关闭按钮事件
+            messageBox.querySelector('button').addEventListener('click', function() {
+                messageBox.remove();
+            });
+            
+            // 自动关闭
+            setTimeout(() => {
+                if (messageBox.parentNode) {
+                    messageBox.classList.add('opacity-0', 'transition-opacity', 'duration-500');
+                    setTimeout(() => messageBox.remove(), 500);
+                }
+            }, 5000);
+        }
+        
+        // 更新行交换的最大行数限制
+        function updateRowSwapMax() {
+            // 确保当前选择的行不超过最大行数
+            if (row1 > currentLayout.rows) {
+                row1 = currentLayout.rows;
+                document.getElementById('row1-display').textContent = row1;
+            }
+            if (row2 > currentLayout.rows) {
+                row2 = currentLayout.rows;
+                document.getElementById('row2-display').textContent = row2;
+            }
+        }
+        
+        // 更新列交换的最大列数限制
+        function updateColSwapMax() {
+            // 确保当前选择的列不超过最大列数
+            if (col1 > currentLayout.cols) {
+                col1 = currentLayout.cols;
+                document.getElementById('col1-display').textContent = col1;
+            }
+            if (col2 > currentLayout.cols) {
+                col2 = currentLayout.cols;
+                document.getElementById('col2-display').textContent = col2;
+            }
+        }
+        
+        // 交换两行的座位
+        window.swapRows = function() {
+            console.log('开始执行行交换功能');
+            console.log('行1:', row1, '行2:', row2);
+            console.log('当前布局:', currentLayout);
+            
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+            
+            if (row1 === row2 || row1 < 1 || row1 > currentLayout.rows || row2 < 1 || row2 > currentLayout.rows) {
+                console.log('输入验证失败');
+                showMessage('错误', '请选择不同的两行进行交换', 'error');
+                return;
+            }
+            
+            // 获取所有座位
+            const allSeats = document.querySelectorAll('.seat');
+            const cols = currentLayout.cols;
+            
+            console.log('座位总数:', allSeats.length);
+            console.log('列数:', cols);
+            
+            // 交换两行的座位数据（从下往上是第一行开始）
+            for (let col = 0; col < cols; col++) {
+                // 根据当前视角模式换算数组中的实际行索引：
+                // 正面模式（讲台在上）：第1排在网格顶部（数组索引0）
+                // 镜面模式（讲台在下）：第1排在网格底部（数组索引rows-1）
+                const actualRow1 = platformAtTop ? (row1 - 1) : (currentLayout.rows - row1);
+                const actualRow2 = platformAtTop ? (row2 - 1) : (currentLayout.rows - row2);
+                
+                const index1 = actualRow1 * cols + col;
+                const index2 = actualRow2 * cols + col;
+                
+                console.log(`交换第${col}列: 索引1=${index1}, 索引2=${index2}`);
+                
+                if (index1 < allSeats.length && index2 < allSeats.length) {
+                    const seat1 = allSeats[index1];
+                    const seat2 = allSeats[index2];
+                    
+                    console.log(`交换前: 座位1="${seat1.textContent}", 座位2="${seat2.textContent}"`);
+                    
+                    // 交换内容和样式
+                    const tempText = seat1.textContent;
+                    const tempBgColor = seat1.style.backgroundColor;
+                    const tempColor = seat1.style.color;
+                    
+                    seat1.textContent = seat2.textContent;
+                    seat1.style.backgroundColor = seat2.style.backgroundColor;
+                    seat1.style.color = seat2.style.color;
+                    
+                    seat2.textContent = tempText;
+                    seat2.style.backgroundColor = tempBgColor;
+                    seat2.style.color = tempColor;
+                    
+                    console.log(`交换后: 座位1="${seat1.textContent}", 座位2="${seat2.textContent}"`);
+                } else {
+                    console.log('索引超出范围:', index1, index2);
+                }
+            }
+            
+            // 显示成功提示
+            console.log('行交换完成');
+            showMessage('交换成功', `已成功交换第${row1}行和第${row2}行`, 'success');
+        }
+        
+        // 交换两列的座位
+        window.swapCols = function() {
+            console.log('开始执行列交换功能');
+            console.log('列1:', col1, '列2:', col2);
+            console.log('当前布局:', currentLayout);
+            
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+            
+            if (col1 === col2 || col1 < 1 || col1 > currentLayout.cols || col2 < 1 || col2 > currentLayout.cols) {
+                console.log('输入验证失败');
+                showMessage('错误', '请选择不同的两列进行交换', 'error');
+                return;
+            }
+            
+            // 获取所有座位
+            const allSeats = document.querySelectorAll('.seat');
+            const rows = currentLayout.rows;
+            const cols = currentLayout.cols;
+            
+            console.log('座位总数:', allSeats.length);
+            console.log('行数:', rows, '列数:', cols);
+            
+            // 交换两列的座位数据（从下往上是第一行开始）
+            for (let row = 0; row < rows; row++) {
+                // 最下面是第一行，所以需要反转行索引
+                const actualRow = currentLayout.rows - 1 - row;
+                
+                const index1 = actualRow * cols + (col1 - 1);
+                const index2 = actualRow * cols + (col2 - 1);
+                
+                console.log(`交换第${row}行: 索引1=${index1}, 索引2=${index2}`);
+                
+                if (index1 < allSeats.length && index2 < allSeats.length) {
+                    const seat1 = allSeats[index1];
+                    const seat2 = allSeats[index2];
+                    
+                    console.log(`交换前: 座位1="${seat1.textContent}", 座位2="${seat2.textContent}"`);
+                    
+                    // 交换内容和样式
+                    const tempText = seat1.textContent;
+                    const tempBgColor = seat1.style.backgroundColor;
+                    const tempColor = seat1.style.color;
+                    
+                    seat1.textContent = seat2.textContent;
+                    seat1.style.backgroundColor = seat2.style.backgroundColor;
+                    seat1.style.color = seat2.style.color;
+                    
+                    seat2.textContent = tempText;
+                    seat2.style.backgroundColor = tempBgColor;
+                    seat2.style.color = tempColor;
+                    
+                    console.log(`交换后: 座位1="${seat1.textContent}", 座位2="${seat2.textContent}"`);
+                } else {
+                    console.log('索引超出范围:', index1, index2);
+                }
+            }
+            
+            // 显示成功提示
+            console.log('列交换完成');
+            showMessage('交换成功', `已成功交换第${col1}列和第${col2}列`, 'success');
+        }
+        
+        // 随机排座功能
+        window.randomSeatStudents = function() {
+            console.log('开始随机排座');
+            console.log('当前学生数量:', importedStudents.length);
+            
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+            
+            // 获取所有座位
+            const allSeats = document.querySelectorAll('.seat');
+            console.log('座位总数:', allSeats.length);
+            
+            // 清空所有座位
+            allSeats.forEach(seat => {
+                seat.textContent = '';
+                seat.style.backgroundColor = '';
+            });
+            
+            // 创建学生列表副本，避免修改原始数据
+            let studentsToArrange = [...importedStudents];
+            
+            // 随机打乱学生顺序
+            studentsToArrange.sort(() => Math.random() - 0.5);
+            
+            // 获取当前布局信息
+            const rows = currentLayout.rows;
+            const cols = currentLayout.cols;
+            console.log('当前布局:', rows, '行', cols, '列');
+            
+            let arrangedCount = 0;
+            
+            // 按列从下到上排座，从最右侧开始一列一列往左排
+            for (let col = cols - 1; col >= 0; col--) {
+                for (let row = rows - 1; row >= 0; row--) {
+                    const seatIndex = row * cols + col;
+                    console.log('尝试安排座位索引:', seatIndex);
+                    
+                    if (seatIndex >= allSeats.length) {
+                        console.log('座位索引超出范围');
+                        break;
+                    }
+                    
+                    if (studentsToArrange.length === 0) {
+                        console.log('没有更多学生需要安排');
+                        break;
+                    }
+                    
+                    // 取出第一个学生（已随机排序）
+                    const student = studentsToArrange.shift();
+                    console.log('安排学生:', student.name, student.gender);
+                    
+                    // 安排学生到座位
+                    const seat = allSeats[seatIndex];
+                    seat.textContent = formatStudentName(student.name, seat);
+                    seat.style.color = 'black';
+                    seat.style.backgroundColor = student.gender === '女' ? '#fce7f3' : '#dbeafe';
+                    
+                    arrangedCount++;
+                }
+            }
+            
+            console.log('总共安排了', arrangedCount, '名学生');
+            
+            // 更新学生列表（移除已安排的学生）
+            importedStudents = [];
+            console.log('更新后学生列表长度:', importedStudents.length);
+            
+            // 重新显示学生列表
+            displayStudentList();
+            
+            showMessage('排座完成', `已随机安排 ${arrangedCount} 名学生的座位`, 'success');
+        }
+        
+        // 向下平移功能
+        window.shiftStudentsDown = function() {
+            console.log('开始执行向下平移功能');
+            console.log('当前布局:', currentLayout);
+            
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+            
+            // 获取所有座位
+            const allSeats = document.querySelectorAll('.seat');
+            const rows = currentLayout.rows;
+            const cols = currentLayout.cols;
+            
+            console.log('座位总数:', allSeats.length);
+            console.log('行数:', rows, '列数:', cols);
+            
+            // 收集所有已安排学生的信息
+            const studentPositions = [];
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const index = row * cols + col;
+                    if (index < allSeats.length) {
+                        const seat = allSeats[index];
+                        const studentName = seat.textContent.trim();
+                        
+                        if (studentName !== '') {
+                            // 保存学生信息和位置
+                            studentPositions.push({
+                                name: studentName,
+                                gender: seat.style.backgroundColor.includes('252, 231, 243') || seat.style.backgroundColor.includes('249, 168, 212') ? '女' : '男',
+                                row: row,
+                                col: col
+                            });
+                            
+                            // 清空座位
+                            seat.textContent = '';
+                            seat.style.backgroundColor = '';
+                        }
+                    }
+                }
+            }
+            
+            console.log('收集到的学生信息:', studentPositions);
+            
+            // 按照向下平移的规则重新安排学生座位
+            studentPositions.forEach(student => {
+                // 计算新的行位置（向下平移一行，如果已经在最下面一行则移动到最上面一行）
+                const newRow = (student.row + 1) % rows;
+                const newIndex = newRow * cols + student.col;
+                
+                console.log(`学生 ${student.name} 从 (${student.row}, ${student.col}) 移动到 (${newRow}, ${student.col})`);
+                
+                if (newIndex < allSeats.length) {
+                    const seat = allSeats[newIndex];
+                    seat.textContent = formatStudentName(student.name, seat);
+                    seat.style.color = 'black';
+                    seat.style.backgroundColor = student.gender === '女' ? '#fce7f3' : '#dbeafe';
+                }
+            });
+            
+            // 显示成功提示
+            console.log('向下平移完成');
+            showMessage('平移成功', '所有学生座位已向下平移一行', 'success');
+        }
+        
+        // 向右平移功能
+        window.shiftStudentsRight = function() {
+            console.log('开始执行向右平移功能');
+            console.log('当前布局:', currentLayout);
+            
+            // 标记有未保存的更改
+            hasUnsavedChanges = true;
+            
+            // 获取所有座位
+            const allSeats = document.querySelectorAll('.seat');
+            const rows = currentLayout.rows;
+            const cols = currentLayout.cols;
+            
+            console.log('座位总数:', allSeats.length);
+            console.log('行数:', rows, '列数:', cols);
+            
+            // 收集所有已安排学生的信息
+            const studentPositions = [];
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const index = row * cols + col;
+                    if (index < allSeats.length) {
+                        const seat = allSeats[index];
+                        const studentName = seat.textContent.trim();
+                        
+                        if (studentName !== '') {
+                            // 保存学生信息和位置
+                            studentPositions.push({
+                                name: studentName,
+                                gender: seat.style.backgroundColor.includes('252, 231, 243') || seat.style.backgroundColor.includes('249, 168, 212') ? '女' : '男',
+                                row: row,
+                                col: col
+                            });
+                            
+                            // 清空座位
+                            seat.textContent = '';
+                            seat.style.backgroundColor = '';
+                        }
+                    }
+                }
+            }
+            
+            console.log('收集到的学生信息:', studentPositions);
+            
+            // 按照向右平移的规则重新安排学生座位
+            studentPositions.forEach(student => {
+                // 计算新的列位置（向右平移一列，如果已经在最右侧则移动到左侧第一列）
+                const newCol = (student.col + 1) % cols;
+                const newIndex = student.row * cols + newCol;
+                
+                console.log(`学生 ${student.name} 从 (${student.row}, ${student.col}) 移动到 (${student.row}, ${newCol})`);
+                
+                if (newIndex < allSeats.length) {
+                    const seat = allSeats[newIndex];
+                    seat.textContent = formatStudentName(student.name, seat);
+                    seat.style.color = 'black';
+                    seat.style.backgroundColor = student.gender === '女' ? '#fce7f3' : '#dbeafe';
+                }
+            });
+            
+            // 显示成功提示
+            console.log('向右平移完成');
+            showMessage('平移成功', '所有学生座位已向右平移一列', 'success');
+        }
+        
+        // 显示添加学生模态框
+        function showAddStudentModal() {
+            const modal = document.getElementById('add-student-modal');
+            modal.classList.remove('hidden');
+            // 清空表单
+            document.getElementById('add-student-form').reset();
+            // 聚焦到姓名输入框
+            document.getElementById('student-name').focus();
+        }
+        
+        // 隐藏添加学生模态框
+        function hideAddStudentModal() {
+            const modal = document.getElementById('add-student-modal');
+            modal.classList.add('hidden');
+        }
+        
+        // 手动添加学生
+        function addStudentManually() {
+            const nameInput = document.getElementById('student-name');
+            const genderInputs = document.getElementsByName('gender');
+            
+            const name = nameInput.value.trim();
+            let gender = '男'; // 默认性别
+            
+            // 获取选中的性别
+            for (const input of genderInputs) {
+                if (input.checked) {
+                    gender = input.value;
+                    break;
+                }
+            }
+            
+            console.log('要添加的学生信息:', { name, gender });
+            
+            // 验证姓名不为空
+            if (!name) {
+                showMessage('错误', '请输入学生姓名', 'error');
+                nameInput.focus();
+                return;
+            }
+            
+            // 检查是否重复
+            const existingNames = getAllExistingStudentNames();
+            if (existingNames.has(name)) {
+                showMessage('错误', `学生 "${name}" 已存在，添加失败`, 'error');
+                nameInput.focus();
+                return;
+            }
+            
+            // 创建新学生对象
+            const newStudent = {
+                id: importedStudents.length + 1,
+                name: name,
+                gender: gender
+            };
+            
+            // 添加到学生列表
+            importedStudents.push(newStudent);
+            originalImportedStudents.push(newStudent);
+            
+            console.log('学生添加成功:', newStudent);
+            
+            // 更新学生列表显示
+            displayStudentList();
+            
+            // 隐藏模态框
+            hideAddStudentModal();
+            
+            // 显示成功消息
+            showMessage('成功', `学生 "${name}" 添加成功`, 'success');
+        }
+        
+        // 收集所有已存在的学生姓名（包括已排座和未排座的）
+        function getAllExistingStudentNames() {
+            const existingNames = new Set();
+            
+            // 添加未排座学生的姓名
+            importedStudents.forEach(student => {
+                existingNames.add(student.name.trim());
+            });
+            
+            // 添加已排座学生的姓名
+            const allSeats = document.querySelectorAll('.seat');
+            allSeats.forEach(seat => {
+                const name = seat.textContent.trim();
+                if (name) {
+                    existingNames.add(name);
+                }
+            });
+            
+            return existingNames;
+        }
+        
+        // 保存当前座位布局到本地存储
+        function saveCurrentSeating() {
+            console.log('开始保存当前座位布局');
+            
+            // 检查是否所有学生都已排座
+            if (importedStudents.length > 0) {
+                showMessage('提示', `还有 ${importedStudents.length} 名学生未排座，是否继续保存？`, 'warning');
+                return;
+            }
+            
+            // 获取所有座位信息
+            const seats = document.querySelectorAll('.seat');
+            const seatData = [];
+            
+            seats.forEach(seat => {
+                const name = seat.textContent.trim();
+                const backgroundColor = seat.style.backgroundColor;
+                const gender = backgroundColor.includes('252, 231, 243') || backgroundColor.includes('249, 168, 212') || backgroundColor.includes('#fce7f3') ? '女' : '男';
+                
+                if (name) {
+                    seatData.push({
+                        name: name,
+                        gender: gender
+                    });
+                } else {
+                    seatData.push(null);
+                }
+            });
+            
+            // 获取已排座的学生信息
+            const seatedStudents = [];
+            seatData.forEach(seatInfo => {
+                if (seatInfo) {
+                    seatedStudents.push({
+                        name: seatInfo.name,
+                        gender: seatInfo.gender
+                    });
+                }
+            });
+            
+            // 准备保存的数据
+            const seatingData = {
+                layout: currentLayout,
+                seats: seatData,
+                students: seatedStudents,
+                timestamp: new Date().toISOString()
+            };
+            
+            console.log('准备保存的座位数据:', seatingData);
+            
+            // 保存到本地存储
+            localStorage.setItem('savedSeatingLayout', JSON.stringify(seatingData));
+            
+            // 标记更改已保存
+            hasUnsavedChanges = false;
+            
+            showMessage('保存成功', '座位布局已成功保存', 'success');
+            console.log('座位布局保存完成');
+        }
+        
+        // 从本地存储恢复座位布局
+        function restoreSeatingLayout() {
+            console.log('开始恢复座位布局');
+            
+            const savedData = localStorage.getItem('savedSeatingLayout');
+            if (!savedData) {
+                showMessage('恢复失败', '未找到保存的座位布局', 'error');
+                return;
+            }
+            
+            try {
+                const seatingData = JSON.parse(savedData);
+                console.log('读取到的座位数据:', seatingData);
+                
+                // 恢复布局设置
+                currentLayout = seatingData.layout;
+                document.getElementById('row-count').value = currentLayout.rows;
+                document.getElementById('col-count').value = currentLayout.cols;
+                document.getElementById('row-display').textContent = currentLayout.rows;
+                document.getElementById('col-display').textContent = currentLayout.cols;
+                
+                // 更新座位布局
+                updateSeatLayout(currentLayout.rows, currentLayout.cols);
+                
+                // 清空未排座学生列表
+                importedStudents = [];
+                
+                // 恢复座位安排
+                setTimeout(() => {
+                    const seats = document.querySelectorAll('.seat');
+                    seatingData.seats.forEach((seatInfo, index) => {
+                        if (seatInfo && index < seats.length) {
+                            const seat = seats[index];
+                            seat.textContent = formatStudentName(seatInfo.name, seat);
+                            seat.style.color = 'black';
+                            seat.style.backgroundColor = seatInfo.gender === '女' ? '#fce7f3' : '#dbeafe';
+                        }
+                    });
+                    
+                    // 更新学生列表显示
+                    displayStudentList();
+                    
+                    showMessage('恢复成功', '座位布局已成功恢复', 'success');
+                    console.log('座位布局恢复完成');
+                }, 200);
+                
+            } catch (error) {
+                console.error('恢复座位布局时出错:', error);
+                showMessage('恢复失败', '恢复座位布局时发生错误', 'error');
+            }
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('页面加载完成，开始初始化座位系统');
+            // 初始化座位布局和拖拽功能
+            initializeSeats();
+
+            // 讲台点击切换视角（正面 / 镜面）
+            document.getElementById('platform').addEventListener('click', togglePlatformPosition);
+            // 座位姓名自适应：监听座位内容变化自动调整字号
+            const seatingGridEl = document.getElementById('seating-grid');
+            if (seatingGridEl) {
+                new MutationObserver(scheduleFit).observe(seatingGridEl, { childList: true, subtree: true, characterData: true });
+                scheduleFit();
+            }
+            // 窗口大小变化时重新适配（座位框大小变化）
+            let fitResizeTimer = null;
+            window.addEventListener('resize', function() {
+                clearTimeout(fitResizeTimer);
+                fitResizeTimer = setTimeout(autoFitSeatFonts, 150);
+            });
+            
+            // 为初始座位添加拖拽事件（确保所有座位都有拖拽功能）
+            setTimeout(() => {
+                const initialSeats = document.querySelectorAll('.seat');
+                console.log('找到初始座位数量:', initialSeats.length);
+                initialSeats.forEach((seat, index) => {
+                    console.log('为座位', index, '添加拖拽事件');
+                    addDragEventsToSeat(seat);
+                });
+            }, 100);
+            
+            // 绑定保存座位按钮事件
+            document.getElementById('save-current-seating-btn').addEventListener('click', function() {
+                console.log('保存座位按钮被点击');
+                saveCurrentSeating();
+            });
+            
+            // 绑定恢复座位按钮事件
+            document.getElementById('restore-seating-btn').addEventListener('click', function() {
+                console.log('恢复座位按钮被点击');
+                restoreSeatingLayout();
+            });
+            
+            // 检查是否有保存的座位布局
+            const hasSavedLayout = localStorage.getItem('savedSeatingLayout') !== null;
+            console.log('是否存在保存的座位布局:', hasSavedLayout);
+            
+            // 行数加减按钮事件
+            document.getElementById('decrease-rows').addEventListener('click', function() {
+                let currentRows = parseInt(document.getElementById('row-count').value);
+                if (currentRows > 1) {
+                    currentRows--;
+                    document.getElementById('row-count').value = currentRows;
+                    document.getElementById('row-display').textContent = currentRows;
+                }
+            });
+            
+            document.getElementById('increase-rows').addEventListener('click', function() {
+                let currentRows = parseInt(document.getElementById('row-count').value);
+                if (currentRows < 10) {
+                    currentRows++;
+                    document.getElementById('row-count').value = currentRows;
+                    document.getElementById('row-display').textContent = currentRows;
+                }
+            });
+            
+            // 列数加减按钮事件
+            document.getElementById('decrease-cols').addEventListener('click', function() {
+                let currentCols = parseInt(document.getElementById('col-count').value);
+                if (currentCols > 1) {
+                    currentCols--;
+                    document.getElementById('col-count').value = currentCols;
+                    document.getElementById('col-display').textContent = currentCols;
+                    // 更新列交换的最大列数
+                    updateColSwapMax();
+                }
+            });
+            
+            document.getElementById('increase-cols').addEventListener('click', function() {
+                let currentCols = parseInt(document.getElementById('col-count').value);
+                if (currentCols < 12) {
+                    currentCols++;
+                    document.getElementById('col-count').value = currentCols;
+                    document.getElementById('col-display').textContent = currentCols;
+                    // 更新列交换的最大列数
+                    updateColSwapMax();
+                }
+            });
+            
+            // 设置行交换按钮事件
+            document.getElementById('decrease-row1').addEventListener('click', function() {
+                if (row1 > 1) {
+                    row1--;
+                    document.getElementById('row1-display').textContent = row1;
+                }
+            });
+            
+            document.getElementById('increase-row1').addEventListener('click', function() {
+                if (row1 < currentLayout.rows) {
+                    row1++;
+                    document.getElementById('row1-display').textContent = row1;
+                }
+            });
+            
+            document.getElementById('decrease-row2').addEventListener('click', function() {
+                if (row2 > 1) {
+                    row2--;
+                    document.getElementById('row2-display').textContent = row2;
+                }
+            });
+            
+            document.getElementById('increase-row2').addEventListener('click', function() {
+                if (row2 < currentLayout.rows) {
+                    row2++;
+                    document.getElementById('row2-display').textContent = row2;
+                }
+            });
+            
+            document.getElementById('swap-rows-btn').addEventListener('click', function() {
+                console.log('行交换按钮被点击');
+                console.log('当前行1:', row1, '行2:', row2);
+                console.log('当前布局:', currentLayout);
+                swapRows();
+            });
+            
+            document.getElementById('swap-cols-btn').addEventListener('click', function() {
+                console.log('列交换按钮被点击');
+                
+                // 从界面上获取最新的列号值
+                const col1Value = parseInt(document.getElementById('col1-display').textContent);
+                const col2Value = parseInt(document.getElementById('col2-display').textContent);
+                
+                console.log('界面上显示的列1:', col1Value, '列2:', col2Value);
+                console.log('全局变量列1:', col1, '列2:', col2);
+                console.log('当前布局:', currentLayout);
+                
+                // 更新全局变量
+                col1 = col1Value;
+                col2 = col2Value;
+                
+                // 执行列交换
+                swapCols();
+            });
+            
+            // 向右平移按钮点击事件
+            document.getElementById('shift-right-btn').addEventListener('click', function() {
+                console.log('向右平移按钮被点击');
+                shiftStudentsRight();
+            });
+            
+            // 向下平移按钮点击事件
+            document.getElementById('shift-down-btn').addEventListener('click', function() {
+                console.log('向下平移按钮被点击');
+                shiftStudentsDown();
+            });
+            
+            // 手动添加学生按钮点击事件
+            document.getElementById('add-manually-btn').addEventListener('click', function() {
+                console.log('手动添加学生按钮被点击');
+                showAddStudentModal();
+            });
+            
+            // 关闭模态框按钮点击事件
+            document.getElementById('close-modal-btn').addEventListener('click', function() {
+                console.log('关闭模态框按钮被点击');
+                hideAddStudentModal();
+            });
+            
+            // 取消添加按钮点击事件
+            document.getElementById('cancel-add-btn').addEventListener('click', function() {
+                console.log('取消添加按钮被点击');
+                hideAddStudentModal();
+            });
+            
+            // 添加学生表单提交事件
+            document.getElementById('add-student-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                console.log('添加学生表单被提交');
+                addStudentManually();
+            });
+            
+
+            
+
+        });
+            // 添加页面关闭前的未保存提示
+            window.addEventListener('beforeunload', function(e) {
+                if (hasUnsavedChanges) {
+                    // 由于浏览器安全限制，我们只能设置默认的提示消息
+                    e.preventDefault();
+                    e.returnValue = '您有未保存的座位更改，确定要离开吗？';
+                    return '您有未保存的座位更改，确定要离开吗？';
+                }
+            });
+    </script>
+</body>
+</html>
